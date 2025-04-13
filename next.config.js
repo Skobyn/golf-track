@@ -13,6 +13,16 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Configure static export
+  output: 'export',
+  // Configure trailing slashes for static exports
+  trailingSlash: true,
+  // Disable server components for static export
+  experimental: {
+    serverComponentsExternalPackages: [],
+  },
+  // Configure distDir for Vercel
+  distDir: 'out',
 }
 
 module.exports = nextConfig 
