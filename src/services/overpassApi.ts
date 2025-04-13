@@ -17,8 +17,13 @@ export interface OverpassElement {
   uid: number;
   tags?: { [key: string]: string };
   nodes?: number[]; // For ways
-  members?: any[]; // For relations (simplified)
+  members?: { 
+    type: 'node' | 'way' | 'relation';
+    ref: number;
+    role: string;
+  }[]; // For relations (with more specific type)
   geometry?: { lat: number; lon: number }[]; // For ways/relations with geometry
+  center?: { lat: number; lon: number }; // Center point returned by Overpass when using 'out center'
 }
 
 /**

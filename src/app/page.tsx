@@ -1,15 +1,21 @@
 'use client'; // This whole page needs to be client-side due to hooks and dynamic import
 
-import Image from "next/image";
 import { useLocation } from "@/hooks/useLocation";
 import { useState, useMemo, useCallback } from "react";
 import dynamic from 'next/dynamic';
 import L from 'leaflet'; // Import L namespace directly
 import CourseFinder from "@/components/CourseFinder";
-import type { CourseInfo } from "@/components/CourseFinder";
 import { fetchOverpassData, buildCourseDetailsQuery, OverpassElement } from "@/services/overpassApi";
 import { getLatLngFromNode, getLatLngArrayFromWay, getElementDescription, findGreenForHole, calculateFMBPoints, calculateDistanceYards } from "@/utils/mapUtils"; // Import needed utils
 import DistanceDisplay from "@/components/DistanceDisplay"; // Import DistanceDisplay
+
+// Define locally to avoid import issues
+interface CourseInfo {
+  id: number;
+  name: string;
+  type: 'node' | 'way' | 'relation';
+  center?: { lat: number; lon: number };
+}
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), {
     ssr: false,
@@ -40,211 +46,12 @@ interface CalculatedDistances {
     status: 'ok' | 'no_location' | 'no_details' | 'no_hole_green' | 'calc_error';
 }
 
+// Dynamically import the actual page content to avoid SSR issues
+const HomeContent = dynamic(() => import('@/components/HomeContent'), {
+  ssr: false,
+  loading: () => <div className="flex min-h-screen items-center justify-center">Loading...</div>
+});
+
 export default function Home() {
-  const { coordinates, permissionStatus, error: locationError, isLoading: locationLoading, requestAndFetchLocation } = useLocation();
-  const [selectedCourse, setSelectedCourse] = useState<CourseInfo | null>(null);
-  const [courseDetails, setCourseDetails] = useState<CourseDetails | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState<boolean>(false);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
-  const [currentHoleNumber, setCurrentHoleNumber] = useState<number>(1);
-
-  const mapCenter = useMemo<L.LatLngExpression>(() => {
-    if (coordinates) {
-        return [coordinates.lat, coordinates.lon];
-    }
-    if (selectedCourse?.center) {
-        return [selectedCourse.center.lat, selectedCourse.center.lon];
-    }
-    return [51.505, -0.09]; // Default fallback (London)
-  }, [coordinates, selectedCourse]);
-
-  const fetchDetails = useCallback(async (courseId: number) => {
-    setDetailsLoading(true);
-    setDetailsError(null);
-    setCourseDetails(null);
-    console.log(`Fetching details for course ID: ${courseId}`);
-    try {
-        const query = buildCourseDetailsQuery(courseId);
-        const response = await fetchOverpassData(query);
-        const tees = response.elements.filter(el => el.tags?.['golf'] === 'tee');
-        const greens = response.elements.filter(el => el.tags?.['golf'] === 'green');
-        console.log(`Found ${tees.length} tees and ${greens.length} greens.`);
-        setCourseDetails({ tees, greens });
-        setCurrentHoleNumber(1);
-    } catch (err) {
-        console.error("Error fetching course details:", err);
-        setDetailsError(err instanceof Error ? err.message : 'Failed to fetch course details');
-    } finally {
-        setDetailsLoading(false);
-    }
-  }, []);
-
-  const handleCourseSelect = useCallback((course: CourseInfo) => {
-    console.log("Course selected:", course);
-    setSelectedCourse(course);
-    setCourseDetails(null);
-    fetchDetails(course.id);
-  }, [fetchDetails]);
-
-  const goToPreviousHole = () => {
-      setCurrentHoleNumber(prev => Math.max(1, prev - 1));
-  };
-  const goToNextHole = () => {
-      setCurrentHoleNumber(prev => Math.min(18, prev + 1));
-  };
-
-  const mapTeeMarkers = useMemo((): MapElement[] => {
-    if (!courseDetails?.tees) return [];
-    // TODO: Optionally filter tees by currentHoleNumber if ref tag exists
-    return courseDetails.tees.map(tee => {
-        const position = getLatLngFromNode(tee);
-        return position ? { id: `tee-${tee.id}`, position: position, popupText: getElementDescription(tee) } : null;
-    }).filter((marker): marker is MapElement => marker !== null);
-}, [courseDetails /*, currentHoleNumber */]); // Add currentHoleNumber if filtering is added
-
-const mapGreenPolygons = useMemo((): MapPolygon[] => {
-  if (!courseDetails?.greens) return [];
-  // TODO: Optionally filter greens by currentHoleNumber
-  return courseDetails.greens.map(green => {
-      const positions = getLatLngArrayFromWay(green);
-      if (positions && positions.length >= 3) {
-          return { id: `green-poly-${green.id}`, positions: positions, popupText: getElementDescription(green), color: '#228B22' };
-      }
-      // Maybe render node greens later?
-      return null;
-  }).filter((poly): poly is MapPolygon => poly !== null);
-}, [courseDetails /*, currentHoleNumber */]); // Add currentHoleNumber if filtering is added
-
-  const currentDistances = useMemo((): CalculatedDistances => {
-    if (!coordinates) {
-        return { front: null, middle: null, back: null, status: 'no_location' };
-    }
-    if (!courseDetails?.greens) {
-        // This could be because details haven't loaded, are loading, or failed to load.
-        // Let the UI rendering handle displaying messages based on detailsLoading/detailsError.
-        return { front: null, middle: null, back: null, status: 'no_details' };
-    }
-
-    const userLatLng = L.latLng(coordinates.lat, coordinates.lon);
-    const currentGreenElement = findGreenForHole(courseDetails.greens, currentHoleNumber);
-
-    if (!currentGreenElement) {
-        console.warn(`No green found for hole ${currentHoleNumber}`);
-        return { front: null, middle: null, back: null, status: 'no_hole_green' };
-    }
-
-    try {
-        const fmbPoints = calculateFMBPoints(currentGreenElement, userLatLng);
-
-        // Check if calculation yielded any points
-        if (!fmbPoints.front && !fmbPoints.middle && !fmbPoints.back) {
-             console.error(`F/M/B calculation failed for green ${currentGreenElement.id} on hole ${currentHoleNumber}`);
-             return { front: null, middle: null, back: null, status: 'calc_error' };
-        }
-
-        const distF = fmbPoints.front ? calculateDistanceYards(userLatLng, fmbPoints.front) : null;
-        const distM = fmbPoints.middle ? calculateDistanceYards(userLatLng, fmbPoints.middle) : null;
-        const distB = fmbPoints.back ? calculateDistanceYards(userLatLng, fmbPoints.back) : null;
-
-        return { front: distF, middle: distM, back: distB, status: 'ok' };
-
-    } catch (calcError) {
-        console.error(`Error during distance calculation for hole ${currentHoleNumber}:`, calcError);
-        return { front: null, middle: null, back: null, status: 'calc_error' };
-    }
-
-  }, [coordinates, courseDetails, currentHoleNumber]);
-
-  const renderMapContent = () => {
-    return (
-        <MapComponent
-          center={mapCenter}
-          userMarkerPosition={coordinates ? [coordinates.lat, coordinates.lon] : undefined}
-          userMarkerPopupText="You are here"
-          teeMarkers={mapTeeMarkers} // Still show all tees for context
-          greenPolygons={mapGreenPolygons} // Still show all greens for context
-        />
-      );
-  };
-  const renderStatusOverlay = () => { /* ... existing ... */ return null;};
-
-  return (
-    <main className="flex min-h-screen flex-col items-center p-4">
-      <h1 className="text-2xl font-bold mb-2">Golf Track</h1>
-      {selectedCourse && (
-          <h2 className="text-xl font-semibold mb-1 text-green-700">{selectedCourse.name}</h2>
-      )}
-
-      {/* Hole Navigation UI - Shown only when course is selected */} 
-      {selectedCourse && (
-        <div className="flex items-center justify-center gap-4 my-2 w-full max-w-xs">
-            <button onClick={goToPreviousHole} disabled={currentHoleNumber <= 1 || detailsLoading} className="px-3 py-1 bg-gray-300 rounded disabled:opacity-50">Prev</button>
-            <span className="text-xl font-bold">Hole {currentHoleNumber}</span>
-            <button onClick={goToNextHole} disabled={currentHoleNumber >= 18 || detailsLoading} className="px-3 py-1 bg-gray-300 rounded disabled:opacity-50">Next</button>
-        </div>
-      )}
-
-      {/* Map Area */}
-      <div className="relative w-full h-[50vh] max-w-5xl border border-gray-300 rounded overflow-hidden mb-4 bg-gray-200">
-        {renderMapContent()}
-        {renderStatusOverlay()}
-      </div>
-
-      {/* Course Finder / Change Course Button */} 
-      {!selectedCourse && coordinates && (
-          <div className="w-full max-w-4xl">
-            <CourseFinder userCoords={coordinates} onCourseSelect={handleCourseSelect} />
-          </div>
-      )}
-       {selectedCourse && (
-           <div className="w-full max-w-4xl mb-4 flex justify-between items-center">
-                <button
-                   onClick={() => {
-                       setSelectedCourse(null);
-                       setCourseDetails(null);
-                       setDetailsError(null);
-                       setCurrentHoleNumber(1);
-                   }}
-                   disabled={detailsLoading} // Disable while loading new course
-                   className="px-3 py-1 text-sm bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50"
-               >
-                   Change Course
-               </button>
-           </div>
-       )}
-
-      {/* Distance Display Area - Conditional Rendering based on status */}
-      {selectedCourse && (
-          <div className="w-full max-w-md mt-0">
-            {detailsLoading && <p className="text-center p-4 bg-gray-100 rounded shadow">Loading course data...</p>}
-            {detailsError && <p className="text-center p-4 bg-red-100 text-red-700 rounded shadow">Error loading course data: {detailsError}</p>}
-            {!detailsLoading && !detailsError && courseDetails && (
-                <> 
-                    {currentDistances.status === 'ok' && (
-                        <DistanceDisplay
-                            front={currentDistances.front}
-                            middle={currentDistances.middle}
-                            back={currentDistances.back}
-                        />
-                    )}
-                    {currentDistances.status === 'no_location' && (
-                         <p className="text-center p-4 bg-yellow-100 text-yellow-800 rounded shadow">Waiting for location to calculate distances...</p>
-                    )}
-                    {currentDistances.status === 'no_hole_green' && (
-                         <p className="text-center p-4 bg-orange-100 text-orange-700 rounded shadow">Green data not found for Hole {currentHoleNumber}.</p>
-                    )}
-                     {currentDistances.status === 'calc_error' && (
-                         <p className="text-center p-4 bg-red-100 text-red-700 rounded shadow">Could not calculate distances for Hole {currentHoleNumber}.</p>
-                    )}
-                     {/* Case where details are loaded but status isn't ok (e.g., 'no_details' before first location) - might not be needed */}
-                </>
-            )}
-             {!detailsLoading && !detailsError && !courseDetails && (
-                 <p className="text-center p-4 bg-gray-100 rounded shadow">Course selected, waiting for details...</p>
-             )}
-          </div>
-      )}
-
-    </main>
-  );
+  return <HomeContent />;
 }

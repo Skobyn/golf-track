@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { fetchOverpassData, buildNearbyCoursesQuery, OverpassElement } from '@/services/overpassApi';
+import { fetchOverpassData, buildNearbyCoursesQuery } from '@/services/overpassApi';
 
 interface Coordinates {
   lat: number;
@@ -50,7 +50,11 @@ const CourseFinder: React.FC<CourseFinderProps> = ({ userCoords, onCourseSelect 
           name: el.tags?.name || 'Unnamed Course',
           type: el.type,
           // Extract center if available (especially useful for ways/relations)
-          center: el.center ? { lat: el.center.lat, lon: el.center.lon } : (el.lat ? { lat: el.lat, lon: el.lon } : undefined)
+          center: el.center ? 
+                  { lat: el.center.lat, lon: el.center.lon } : 
+                  (el.lat !== undefined && el.lon !== undefined ? 
+                    { lat: el.lat, lon: el.lon } : 
+                    undefined)
         }))
         .sort((a, b) => a.name.localeCompare(b.name)); // Sort alphabetically
 

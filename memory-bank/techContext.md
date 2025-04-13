@@ -1,5 +1,9 @@
 # techContext.md - Technology & Setup
 
+## Repository
+
+*   **URL:** https://github.com/Skobyn/golf-track.git
+
 ## Core Technology Stack
 
 *   **Framework:** Next.js (with App Router)

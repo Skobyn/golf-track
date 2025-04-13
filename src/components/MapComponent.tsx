@@ -1,11 +1,11 @@
 'use client';
 
-import { MapContainer, TileLayer, Marker, Popup, Polygon } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polygon, useMap } from 'react-leaflet';
 import L from 'leaflet'; // Import Leaflet library itself
 import { useEffect, useState } from 'react';
 
 // Fix for default icon issue with Webpack/Next.js
-delete (L.Icon.Default.prototype as any)._getIconUrl;
+delete (L.Icon.Default.prototype as { _getIconUrl?: unknown })._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
   iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
@@ -46,6 +46,17 @@ interface MapComponentProps {
   greenPolygons?: MapPolygon[];
 }
 
+// Helper component to get map instance
+function MapEffect({ map, setMap }: { map: L.Map | null; setMap: (map: L.Map) => void }) {
+  const mapInstance = useMap();
+  
+  useEffect(() => {
+    setMap(mapInstance);
+  }, [mapInstance, setMap]);
+  
+  return null;
+}
+
 const MapComponent: React.FC<MapComponentProps> = ({
   center,
   zoom = 15,
@@ -78,7 +89,7 @@ const MapComponent: React.FC<MapComponentProps> = ({
               map.fitBounds(bounds, { padding: [50, 50] }); // Add padding
           }
       }
-  }, [map, teeMarkers, greenPolygons, userMarkerPosition]); // Re-run if elements change
+  }, [map, teeMarkers, greenPolygons, userMarkerPosition]);
 
   return (
     <MapContainer
@@ -86,8 +97,8 @@ const MapComponent: React.FC<MapComponentProps> = ({
       zoom={zoom}
       scrollWheelZoom={true}
       style={{ height: '100%', width: '100%' }} // Ensure container has dimensions
-      whenCreated={setMap} // Store map instance
     >
+      <MapEffect map={map} setMap={setMap} />
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
