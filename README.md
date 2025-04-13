@@ -1,22 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Golf Track - Free Web-Based Golf GPS
+
+## Overview
+
+Golf Track is a simple, free web application designed to provide golfers with basic distance information (Front, Middle, Back of the green) using their smartphone's browser and GPS.
+
+It leverages:
+
+*   Device GPS via the Browser Geolocation API.
+*   OpenStreetMap (OSM) data for course layouts, fetched via the Overpass API.
+*   Leaflet maps for displaying the course and user location.
+
+This application is built with Next.js, TypeScript, and Tailwind CSS, intended for deployment on Vercel.
+
+## Features (MVP Target)
+
+*   Detect user location.
+*   Search for nearby golf courses using OSM data.
+*   Display selected course map with user location.
+*   Calculate and display distances to Front/Middle/Back of the current green.
+*   Manual hole navigation.
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+*   Node.js (Check `.nvmrc` or `package.json` engines field if specified)
+*   npm or yarn
+
+### Installation
+
+1.  Clone the repository:
+    ```bash
+    git clone <repository-url> # TODO: Add repo URL later
+    cd golf-track
+    ```
+2.  Install dependencies:
+    ```bash
+    npm install
+    # or
+    yarn install
+    ```
+
+### Running Locally
 
 ```bash
 npm run dev
 # or
 yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Usage
+
+1.  Open the application in your browser.
+2.  Allow location permissions when prompted.
+3.  The app will attempt to find nearby courses.
+4.  Select your course.
+5.  The map will display your location and calculated distances to the green for the current hole.
+
+## Important Notes
+
+*   **Accuracy:** Distance accuracy depends on your device's GPS signal quality and the completeness/accuracy of OpenStreetMap data for the specific course.
+*   **Data:** Not all courses have detailed data (like green polygons) in OpenStreetMap. Functionality may be limited on such courses.
+*   **Connectivity:** Requires an internet connection to load maps and course data.
+
+## Development Details
+
+*   See `memory-bank/` directory for detailed planning, context, and progress tracking.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 

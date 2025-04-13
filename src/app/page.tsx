@@ -1,103 +1,250 @@
+'use client'; // This whole page needs to be client-side due to hooks and dynamic import
+
 import Image from "next/image";
+import { useLocation } from "@/hooks/useLocation";
+import { useState, useMemo, useCallback } from "react";
+import dynamic from 'next/dynamic';
+import L from 'leaflet'; // Import L namespace directly
+import CourseFinder from "@/components/CourseFinder";
+import type { CourseInfo } from "@/components/CourseFinder";
+import { fetchOverpassData, buildCourseDetailsQuery, OverpassElement } from "@/services/overpassApi";
+import { getLatLngFromNode, getLatLngArrayFromWay, getElementDescription, findGreenForHole, calculateFMBPoints, calculateDistanceYards } from "@/utils/mapUtils"; // Import needed utils
+import DistanceDisplay from "@/components/DistanceDisplay"; // Import DistanceDisplay
+
+const MapComponent = dynamic(() => import('@/components/MapComponent'), {
+    ssr: false,
+    loading: () => <p className="text-center">Loading Map...</p>,
+  });
+
+interface CourseDetails {
+    tees: OverpassElement[];
+    greens: OverpassElement[];
+}
+interface MapElement {
+    id: number | string;
+    position: L.LatLngExpression;
+    popupText?: string;
+}
+interface MapPolygon {
+    id: number | string;
+    positions: L.LatLngExpression[];
+    popupText?: string;
+    color?: string;
+}
+
+// Type for calculated distances, adding status
+interface CalculatedDistances {
+    front: number | null;
+    middle: number | null;
+    back: number | null;
+    status: 'ok' | 'no_location' | 'no_details' | 'no_hole_green' | 'calc_error';
+}
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const { coordinates, permissionStatus, error: locationError, isLoading: locationLoading, requestAndFetchLocation } = useLocation();
+  const [selectedCourse, setSelectedCourse] = useState<CourseInfo | null>(null);
+  const [courseDetails, setCourseDetails] = useState<CourseDetails | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState<boolean>(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [currentHoleNumber, setCurrentHoleNumber] = useState<number>(1);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const mapCenter = useMemo<L.LatLngExpression>(() => {
+    if (coordinates) {
+        return [coordinates.lat, coordinates.lon];
+    }
+    if (selectedCourse?.center) {
+        return [selectedCourse.center.lat, selectedCourse.center.lon];
+    }
+    return [51.505, -0.09]; // Default fallback (London)
+  }, [coordinates, selectedCourse]);
+
+  const fetchDetails = useCallback(async (courseId: number) => {
+    setDetailsLoading(true);
+    setDetailsError(null);
+    setCourseDetails(null);
+    console.log(`Fetching details for course ID: ${courseId}`);
+    try {
+        const query = buildCourseDetailsQuery(courseId);
+        const response = await fetchOverpassData(query);
+        const tees = response.elements.filter(el => el.tags?.['golf'] === 'tee');
+        const greens = response.elements.filter(el => el.tags?.['golf'] === 'green');
+        console.log(`Found ${tees.length} tees and ${greens.length} greens.`);
+        setCourseDetails({ tees, greens });
+        setCurrentHoleNumber(1);
+    } catch (err) {
+        console.error("Error fetching course details:", err);
+        setDetailsError(err instanceof Error ? err.message : 'Failed to fetch course details');
+    } finally {
+        setDetailsLoading(false);
+    }
+  }, []);
+
+  const handleCourseSelect = useCallback((course: CourseInfo) => {
+    console.log("Course selected:", course);
+    setSelectedCourse(course);
+    setCourseDetails(null);
+    fetchDetails(course.id);
+  }, [fetchDetails]);
+
+  const goToPreviousHole = () => {
+      setCurrentHoleNumber(prev => Math.max(1, prev - 1));
+  };
+  const goToNextHole = () => {
+      setCurrentHoleNumber(prev => Math.min(18, prev + 1));
+  };
+
+  const mapTeeMarkers = useMemo((): MapElement[] => {
+    if (!courseDetails?.tees) return [];
+    // TODO: Optionally filter tees by currentHoleNumber if ref tag exists
+    return courseDetails.tees.map(tee => {
+        const position = getLatLngFromNode(tee);
+        return position ? { id: `tee-${tee.id}`, position: position, popupText: getElementDescription(tee) } : null;
+    }).filter((marker): marker is MapElement => marker !== null);
+}, [courseDetails /*, currentHoleNumber */]); // Add currentHoleNumber if filtering is added
+
+const mapGreenPolygons = useMemo((): MapPolygon[] => {
+  if (!courseDetails?.greens) return [];
+  // TODO: Optionally filter greens by currentHoleNumber
+  return courseDetails.greens.map(green => {
+      const positions = getLatLngArrayFromWay(green);
+      if (positions && positions.length >= 3) {
+          return { id: `green-poly-${green.id}`, positions: positions, popupText: getElementDescription(green), color: '#228B22' };
+      }
+      // Maybe render node greens later?
+      return null;
+  }).filter((poly): poly is MapPolygon => poly !== null);
+}, [courseDetails /*, currentHoleNumber */]); // Add currentHoleNumber if filtering is added
+
+  const currentDistances = useMemo((): CalculatedDistances => {
+    if (!coordinates) {
+        return { front: null, middle: null, back: null, status: 'no_location' };
+    }
+    if (!courseDetails?.greens) {
+        // This could be because details haven't loaded, are loading, or failed to load.
+        // Let the UI rendering handle displaying messages based on detailsLoading/detailsError.
+        return { front: null, middle: null, back: null, status: 'no_details' };
+    }
+
+    const userLatLng = L.latLng(coordinates.lat, coordinates.lon);
+    const currentGreenElement = findGreenForHole(courseDetails.greens, currentHoleNumber);
+
+    if (!currentGreenElement) {
+        console.warn(`No green found for hole ${currentHoleNumber}`);
+        return { front: null, middle: null, back: null, status: 'no_hole_green' };
+    }
+
+    try {
+        const fmbPoints = calculateFMBPoints(currentGreenElement, userLatLng);
+
+        // Check if calculation yielded any points
+        if (!fmbPoints.front && !fmbPoints.middle && !fmbPoints.back) {
+             console.error(`F/M/B calculation failed for green ${currentGreenElement.id} on hole ${currentHoleNumber}`);
+             return { front: null, middle: null, back: null, status: 'calc_error' };
+        }
+
+        const distF = fmbPoints.front ? calculateDistanceYards(userLatLng, fmbPoints.front) : null;
+        const distM = fmbPoints.middle ? calculateDistanceYards(userLatLng, fmbPoints.middle) : null;
+        const distB = fmbPoints.back ? calculateDistanceYards(userLatLng, fmbPoints.back) : null;
+
+        return { front: distF, middle: distM, back: distB, status: 'ok' };
+
+    } catch (calcError) {
+        console.error(`Error during distance calculation for hole ${currentHoleNumber}:`, calcError);
+        return { front: null, middle: null, back: null, status: 'calc_error' };
+    }
+
+  }, [coordinates, courseDetails, currentHoleNumber]);
+
+  const renderMapContent = () => {
+    return (
+        <MapComponent
+          center={mapCenter}
+          userMarkerPosition={coordinates ? [coordinates.lat, coordinates.lon] : undefined}
+          userMarkerPopupText="You are here"
+          teeMarkers={mapTeeMarkers} // Still show all tees for context
+          greenPolygons={mapGreenPolygons} // Still show all greens for context
+        />
+      );
+  };
+  const renderStatusOverlay = () => { /* ... existing ... */ return null;};
+
+  return (
+    <main className="flex min-h-screen flex-col items-center p-4">
+      <h1 className="text-2xl font-bold mb-2">Golf Track</h1>
+      {selectedCourse && (
+          <h2 className="text-xl font-semibold mb-1 text-green-700">{selectedCourse.name}</h2>
+      )}
+
+      {/* Hole Navigation UI - Shown only when course is selected */} 
+      {selectedCourse && (
+        <div className="flex items-center justify-center gap-4 my-2 w-full max-w-xs">
+            <button onClick={goToPreviousHole} disabled={currentHoleNumber <= 1 || detailsLoading} className="px-3 py-1 bg-gray-300 rounded disabled:opacity-50">Prev</button>
+            <span className="text-xl font-bold">Hole {currentHoleNumber}</span>
+            <button onClick={goToNextHole} disabled={currentHoleNumber >= 18 || detailsLoading} className="px-3 py-1 bg-gray-300 rounded disabled:opacity-50">Next</button>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+      )}
+
+      {/* Map Area */}
+      <div className="relative w-full h-[50vh] max-w-5xl border border-gray-300 rounded overflow-hidden mb-4 bg-gray-200">
+        {renderMapContent()}
+        {renderStatusOverlay()}
+      </div>
+
+      {/* Course Finder / Change Course Button */} 
+      {!selectedCourse && coordinates && (
+          <div className="w-full max-w-4xl">
+            <CourseFinder userCoords={coordinates} onCourseSelect={handleCourseSelect} />
+          </div>
+      )}
+       {selectedCourse && (
+           <div className="w-full max-w-4xl mb-4 flex justify-between items-center">
+                <button
+                   onClick={() => {
+                       setSelectedCourse(null);
+                       setCourseDetails(null);
+                       setDetailsError(null);
+                       setCurrentHoleNumber(1);
+                   }}
+                   disabled={detailsLoading} // Disable while loading new course
+                   className="px-3 py-1 text-sm bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50"
+               >
+                   Change Course
+               </button>
+           </div>
+       )}
+
+      {/* Distance Display Area - Conditional Rendering based on status */}
+      {selectedCourse && (
+          <div className="w-full max-w-md mt-0">
+            {detailsLoading && <p className="text-center p-4 bg-gray-100 rounded shadow">Loading course data...</p>}
+            {detailsError && <p className="text-center p-4 bg-red-100 text-red-700 rounded shadow">Error loading course data: {detailsError}</p>}
+            {!detailsLoading && !detailsError && courseDetails && (
+                <> 
+                    {currentDistances.status === 'ok' && (
+                        <DistanceDisplay
+                            front={currentDistances.front}
+                            middle={currentDistances.middle}
+                            back={currentDistances.back}
+                        />
+                    )}
+                    {currentDistances.status === 'no_location' && (
+                         <p className="text-center p-4 bg-yellow-100 text-yellow-800 rounded shadow">Waiting for location to calculate distances...</p>
+                    )}
+                    {currentDistances.status === 'no_hole_green' && (
+                         <p className="text-center p-4 bg-orange-100 text-orange-700 rounded shadow">Green data not found for Hole {currentHoleNumber}.</p>
+                    )}
+                     {currentDistances.status === 'calc_error' && (
+                         <p className="text-center p-4 bg-red-100 text-red-700 rounded shadow">Could not calculate distances for Hole {currentHoleNumber}.</p>
+                    )}
+                     {/* Case where details are loaded but status isn't ok (e.g., 'no_details' before first location) - might not be needed */}
+                </>
+            )}
+             {!detailsLoading && !detailsError && !courseDetails && (
+                 <p className="text-center p-4 bg-gray-100 rounded shadow">Course selected, waiting for details...</p>
+             )}
+          </div>
+      )}
+
+    </main>
   );
 }
