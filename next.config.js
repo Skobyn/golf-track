@@ -17,11 +17,6 @@ const nextConfig = {
   output: 'export',
   // Configure trailing slashes for static exports
   trailingSlash: true,
-  // Disable server components for static export
-  experimental: {
-    // Updated property name per Next.js 15 requirements
-    serverExternalPackages: [],
-  },
   // Configure distDir for Vercel
   distDir: 'out',
 }
