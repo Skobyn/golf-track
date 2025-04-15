@@ -50,7 +50,15 @@ interface CalculatedDistances {
 }
 
 export default function HomeContent() {
-  const { coordinates } = useLocation();
+  // Get full location state
+  const { 
+    coordinates, 
+    permissionStatus, 
+    error: locationError, 
+    isLoading: locationLoading, 
+    requestAndFetchLocation 
+  } = useLocation();
+  
   const [selectedCourse, setSelectedCourse] = useState<CourseInfo | null>(null);
   const [courseDetails, setCourseDetails] = useState<CourseDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState<boolean>(false);
@@ -179,6 +187,36 @@ export default function HomeContent() {
 
   }, [coordinates, courseDetails, currentHoleNumber]);
 
+  // Function to render location status/button
+  const renderLocationStatus = () => {
+    if (locationLoading && permissionStatus === 'checking') {
+      return <p className="text-center text-gray-500 italic my-2">Checking location permission...</p>;
+    }
+    if (permissionStatus === 'prompt' || (!coordinates && !locationError)) {
+      return (
+        <div className="text-center my-4">
+          <button 
+            onClick={requestAndFetchLocation} 
+            disabled={locationLoading}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {locationLoading ? 'Fetching Location...' : 'Allow/Get My Location'}
+          </button>
+          <p className="text-sm text-gray-500 mt-1">Location needed to find courses and calculate distances.</p>
+        </div>
+      );
+    }
+    if (locationError) {
+      const errorMessage = locationError instanceof Error ? locationError.message : 'Unknown location error';
+      return <p className="text-center text-red-600 my-2">Location Error: {errorMessage}</p>;
+    }
+    if (permissionStatus === 'denied') {
+      return <p className="text-center text-orange-600 my-2">Location permission denied. Please enable it in your browser settings.</p>;
+    }
+    // If coordinates exist, no specific status message needed here
+    return null;
+  };
+
   return (
     <main className="flex min-h-screen flex-col items-center p-4">
       <h1 className="text-2xl font-bold mb-2">Golf Track</h1>
@@ -186,78 +224,86 @@ export default function HomeContent() {
           <h2 className="text-xl font-semibold mb-1 text-green-700">{selectedCourse.name}</h2>
       )}
 
-      {/* Hole Navigation UI - Shown only when course is selected */} 
-      {selectedCourse && (
-        <div className="flex items-center justify-center gap-4 my-2 w-full max-w-xs">
-            <button onClick={goToPreviousHole} disabled={currentHoleNumber <= 1 || detailsLoading} className="px-3 py-1 bg-gray-300 rounded disabled:opacity-50">Prev</button>
-            <span className="text-xl font-bold">Hole {currentHoleNumber}</span>
-            <button onClick={goToNextHole} disabled={currentHoleNumber >= 18 || detailsLoading} className="px-3 py-1 bg-gray-300 rounded disabled:opacity-50">Next</button>
-        </div>
-      )}
+      {/* Render location status/button */} 
+      {renderLocationStatus()}
 
-      {/* Map Area */}
-      <div className="relative w-full h-[50vh] max-w-5xl border border-gray-300 rounded overflow-hidden mb-4 bg-gray-200">
-        <MapComponent
-          center={mapCenter}
-          userMarkerPosition={coordinates ? [coordinates.lat, coordinates.lon] : undefined}
-          userMarkerPopupText="You are here"
-          teeMarkers={mapTeeMarkers}
-          greenPolygons={mapGreenPolygons}
-        />
-      </div>
+      {/* Only show map, course finder, etc., if location is potentially available or granted */}
+      {(coordinates || permissionStatus === 'granted' || permissionStatus === 'prompt') && (
+        <>
+          {/* Hole Navigation UI - Shown only when course is selected */} 
+          {selectedCourse && (
+            <div className="flex items-center justify-center gap-4 my-2 w-full max-w-xs">
+                <button onClick={goToPreviousHole} disabled={currentHoleNumber <= 1 || detailsLoading} className="px-3 py-1 bg-gray-300 rounded disabled:opacity-50">Prev</button>
+                <span className="text-xl font-bold">Hole {currentHoleNumber}</span>
+                <button onClick={goToNextHole} disabled={currentHoleNumber >= 18 || detailsLoading} className="px-3 py-1 bg-gray-300 rounded disabled:opacity-50">Next</button>
+            </div>
+          )}
 
-      {/* Course Finder / Change Course Button */} 
-      {!selectedCourse && coordinates && (
-          <div className="w-full max-w-4xl">
-            <CourseFinder userCoords={coordinates} onCourseSelect={handleCourseSelect} />
+          {/* Map Area */}
+          <div className="relative w-full h-[50vh] max-w-5xl border border-gray-300 rounded overflow-hidden mb-4 bg-gray-200">
+            <MapComponent
+              center={mapCenter}
+              userMarkerPosition={coordinates ? [coordinates.lat, coordinates.lon] : undefined}
+              userMarkerPopupText="You are here"
+              teeMarkers={mapTeeMarkers}
+              greenPolygons={mapGreenPolygons}
+            />
           </div>
-      )}
-       {selectedCourse && (
-           <div className="w-full max-w-4xl mb-4 flex justify-between items-center">
-                <button
-                   onClick={() => {
-                       setSelectedCourse(null);
-                       setCourseDetails(null);
-                       setDetailsError(null);
-                       setCurrentHoleNumber(1);
-                   }}
-                   disabled={detailsLoading} // Disable while loading new course
-                   className="px-3 py-1 text-sm bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50"
-               >
-                   Change Course
-               </button>
-           </div>
-       )}
 
-      {/* Distance Display Area - Conditional Rendering based on status */}
-      {selectedCourse && (
-          <div className="w-full max-w-md mt-0">
-            {detailsLoading && <p className="text-center p-4 bg-gray-100 rounded shadow">Loading course data...</p>}
-            {detailsError && <p className="text-center p-4 bg-red-100 text-red-700 rounded shadow">Error loading course data: {detailsError}</p>}
-            {!detailsLoading && !detailsError && courseDetails && (
-                <> 
-                    {currentDistances.status === 'ok' && (
-                        <DistanceDisplay
-                            front={currentDistances.front}
-                            middle={currentDistances.middle}
-                            back={currentDistances.back}
-                        />
-                    )}
-                    {currentDistances.status === 'no_location' && (
-                         <p className="text-center p-4 bg-yellow-100 text-yellow-800 rounded shadow">Waiting for location to calculate distances...</p>
-                    )}
-                    {currentDistances.status === 'no_hole_green' && (
-                         <p className="text-center p-4 bg-orange-100 text-orange-700 rounded shadow">Green data not found for Hole {currentHoleNumber}.</p>
-                    )}
-                     {currentDistances.status === 'calc_error' && (
-                         <p className="text-center p-4 bg-red-100 text-red-700 rounded shadow">Could not calculate distances for Hole {currentHoleNumber}.</p>
-                    )}
-                </>
-            )}
-             {!detailsLoading && !detailsError && !courseDetails && (
-                 <p className="text-center p-4 bg-gray-100 rounded shadow">Course selected, waiting for details...</p>
-             )}
-          </div>
+          {/* Course Finder / Change Course Button */}
+          {!selectedCourse && coordinates && (
+              <div className="w-full max-w-4xl">
+                <CourseFinder userCoords={coordinates} onCourseSelect={handleCourseSelect} />
+              </div>
+          )}
+           {selectedCourse && (
+               <div className="w-full max-w-4xl mb-4 flex justify-between items-center">
+                    <button
+                       onClick={() => {
+                           setSelectedCourse(null);
+                           setCourseDetails(null);
+                           setDetailsError(null);
+                           setCurrentHoleNumber(1);
+                       }}
+                       disabled={detailsLoading} // Disable while loading new course
+                       className="px-3 py-1 text-sm bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50"
+                   >
+                       Change Course
+                   </button>
+               </div>
+           )}
+
+          {/* Distance Display Area - Conditional Rendering based on status */}
+          {selectedCourse && (
+              <div className="w-full max-w-md mt-0">
+                {detailsLoading && <p className="text-center p-4 bg-gray-100 rounded shadow">Loading course data...</p>}
+                {detailsError && <p className="text-center p-4 bg-red-100 text-red-700 rounded shadow">Error loading course data: {detailsError}</p>}
+                {!detailsLoading && !detailsError && courseDetails && (
+                    <> 
+                        {currentDistances.status === 'ok' && (
+                            <DistanceDisplay
+                                front={currentDistances.front}
+                                middle={currentDistances.middle}
+                                back={currentDistances.back}
+                            />
+                        )}
+                        {currentDistances.status === 'no_location' && (
+                             <p className="text-center p-4 bg-yellow-100 text-yellow-800 rounded shadow">Waiting for location to calculate distances...</p>
+                        )}
+                        {currentDistances.status === 'no_hole_green' && (
+                             <p className="text-center p-4 bg-orange-100 text-orange-700 rounded shadow">Green data not found for Hole {currentHoleNumber}.</p>
+                        )}
+                         {currentDistances.status === 'calc_error' && (
+                             <p className="text-center p-4 bg-red-100 text-red-700 rounded shadow">Could not calculate distances for Hole {currentHoleNumber}.</p>
+                        )}
+                    </>
+                )}
+                 {!detailsLoading && !detailsError && !courseDetails && (
+                     <p className="text-center p-4 bg-gray-100 rounded shadow">Course selected, waiting for details...</p>
+                 )}
+              </div>
+          )}
+        </>
       )}
     </main>
   );

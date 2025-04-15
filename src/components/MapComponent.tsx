@@ -46,6 +46,8 @@ interface MapComponentProps {
   greenPolygons?: MapPolygon[];
 }
 
+type MapLayerType = 'osm' | 'satellite';
+
 // Helper component to get map instance
 function MapEffect({ map, setMap }: { map: L.Map | null; setMap: (map: L.Map) => void }) {
   const mapInstance = useMap();
@@ -65,8 +67,8 @@ const MapComponent: React.FC<MapComponentProps> = ({
   teeMarkers = [],
   greenPolygons = [],
 }) => {
-  // Use state to hold the map instance reference if needed later
   const [map, setMap] = useState<L.Map | null>(null);
+  const [mapLayer, setMapLayer] = useState<MapLayerType>('osm'); // Default to OSM
 
   // Effect to fly to new center when props change
   useEffect(() => {
@@ -91,41 +93,65 @@ const MapComponent: React.FC<MapComponentProps> = ({
       }
   }, [map, teeMarkers, greenPolygons, userMarkerPosition]);
 
+  const toggleMapLayer = () => {
+    setMapLayer(prev => (prev === 'osm' ? 'satellite' : 'osm'));
+  };
+
   return (
-    <MapContainer
-      center={center}
-      zoom={zoom}
-      scrollWheelZoom={true}
-      style={{ height: '100%', width: '100%' }} // Ensure container has dimensions
-    >
-      <MapEffect map={map} setMap={setMap} />
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
+    <div className="relative h-full w-full">
+      <MapContainer
+        center={center}
+        zoom={zoom}
+        scrollWheelZoom={true}
+        style={{ height: '100%', width: '100%' }} // Ensure container has dimensions
+      >
+        <MapEffect map={map} setMap={setMap} />
+        
+        {/* Conditional Tile Layer */}
+        {mapLayer === 'osm' && (
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+        )}
+        {mapLayer === 'satellite' && (
+          <TileLayer
+            attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            maxZoom={18} // Satellite imagery often has higher zoom levels
+          />
+        )}
 
-      {/* User Location Marker */}
-      {userMarkerPosition && (
-        <Marker position={userMarkerPosition}>
-          <Popup>{userMarkerPopupText}</Popup>
-        </Marker>
-      )}
+        {/* User Location Marker */}
+        {userMarkerPosition && (
+          <Marker position={userMarkerPosition}>
+            <Popup>{userMarkerPopupText}</Popup>
+          </Marker>
+        )}
 
-      {/* Tee Markers */}
-      {teeMarkers.map((marker) => (
-        <Marker key={marker.id} position={marker.position} icon={teeIcon}>
-          {marker.popupText && <Popup>{marker.popupText}</Popup>}
-        </Marker>
-      ))}
+        {/* Tee Markers */}
+        {teeMarkers.map((marker) => (
+          <Marker key={marker.id} position={marker.position} icon={teeIcon}>
+            {marker.popupText && <Popup>{marker.popupText}</Popup>}
+          </Marker>
+        ))}
 
-      {/* Green Polygons */}
-      {greenPolygons.map((polygon) => (
-        <Polygon key={polygon.id} pathOptions={{ color: polygon.color || 'green' }} positions={polygon.positions}>
-           {polygon.popupText && <Popup>{polygon.popupText}</Popup>}
-        </Polygon>
-      ))}
+        {/* Green Polygons */}
+        {greenPolygons.map((polygon) => (
+          <Polygon key={polygon.id} pathOptions={{ color: polygon.color || 'green' }} positions={polygon.positions}>
+            {polygon.popupText && <Popup>{polygon.popupText}</Popup>}
+          </Polygon>
+        ))}
 
-    </MapContainer>
+      </MapContainer>
+      {/* Layer Toggle Button */}
+      <button 
+        onClick={toggleMapLayer}
+        className="absolute bottom-2 right-2 z-[1000] px-3 py-1 bg-white bg-opacity-80 text-black text-xs rounded shadow hover:bg-opacity-100"
+      >
+        {mapLayer === 'osm' ? 'Satellite View' : 'Map View'}
+      </button>
+    </div>
   );
 };
 
